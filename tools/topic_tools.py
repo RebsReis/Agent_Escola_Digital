@@ -1,3 +1,5 @@
+#Controlam o fluxo de ensino
+
 from langchain_core.tools import tool
 
 from tools.database_tools import executar_query_postgres

@@ -1,3 +1,4 @@
+#Gerenciam o ciclo de vida do aluno e matérias.
 import os
 from typing import Optional
 
