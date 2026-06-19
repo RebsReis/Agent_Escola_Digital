@@ -6,7 +6,7 @@ from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
 
 # ------------------------------------------------------------------------
-# 1. DEFINIÇÃO DO ESTADO GLOBAL REVISADO (Cumprindo o Escopo)
+# 1. DEFINIÇÃO DO ESTADO GLOBAL REVISADO 
 # ------------------------------------------------------------------------
 class EscolaDigitalState(TypedDict, total=False):
     # Histórico Global da Conversa (usado pelo Orquestrador e Secretário)
