@@ -9,7 +9,7 @@ from psycopg2.extras import RealDictCursor
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://usuario:senha@localhost:5432/escola_digital")
+DATABASE_URL = os.getenv
 
 
 def executar_query_postgres(sql: str, params: tuple = ()) -> list[dict]:
