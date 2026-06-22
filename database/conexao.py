@@ -1,38 +1,57 @@
-#Agora que as classes existem, precisamos do mecanismo que abre as conexões com o PostgreSQL e gerencia as 
-# sessões que os agentes usarão.
-import os
-from dotenv import load_dotenv
+"""
+Gerenciador de Conexões com o Banco de Dados.
+
+Este módulo configura e fornece fábricas de sessão para acesso
+ao banco de dados PostgreSQL usando SQLAlchemy.
+"""
+
+import logging
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-# Carrega as variáveis do .env
-load_dotenv()
+from config import get_config
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+logger = logging.getLogger(__name__)
 
-if not DATABASE_URL:
-    raise ValueError("A variável DATABASE_URL não foi configurada no arquivo .env!")
+# Obtém configuração centralizada
+config = get_config()
 
-# Cria o motor de conexão
-engine = create_engine(DATABASE_URL, echo=False) # Mude para True se quiser ver os SQLs no terminal
+# Cria o motor de conexão com pool configurável
+engine = create_engine(
+    config.database.url,
+    pool_size=config.database.pool_size,
+    max_overflow=config.database.max_overflow,
+    echo=config.database.echo,
+)
 
 # Fábrica de Sessões
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+logger.info("Engine do banco de dados criado com sucesso")
+
+
 def get_db():
-    """Função utilitária para obter uma sessão do banco de dados"""
+    """
+    Função geradora que fornece uma sessão do banco de dados.
+    
+    Yields:
+        Sessão ativa do SQLAlchemy.
+    
+    Example:
+        ```python
+        for db in get_db():
+            db.query(Model).all()
+        ```
+    """
     db = SessionLocal()
     try:
+        logger.debug("Sessão de banco de dados criada")
         yield db
+    except Exception as e:
+        logger.error(f"Erro durante sessão de banco de dados: {e}", exc_info=True)
+        db.rollback()
+        raise
     finally:
+        logger.debug("Sessão de banco de dados fechada")
         db.close()
-
-'''Por que estruturamos assim? > Quando o LangGraph chamar uma Tool (ferramenta de consulta), a ferramenta usará 
-o SessionLocal() para ler ou atualizar os dados de forma isolada e segura, fechando a conexão logo em seguida.
-
-Nossas fundações de dados estão prontas! O próximo passo natural é dar "mãos" aos agentes construindo as Tools 
-(ferramentas). Como o Agente Secretário precisa lidar com o gerenciamento dos alunos, faz sentido começarmos 
-pelas ferramentas administrativas.
-
-Para o nosso próximo passo, você prefere criar as ferramentas do Aluno e Matrícula (Criar Aluno, Matricular 
-em Matéria, Consultar Matrículas) ou prefere começar escrevendo as ferramentas de Tópicos e Progresso?'''

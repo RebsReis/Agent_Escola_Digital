@@ -1,22 +1,51 @@
-#Gerenciam o ciclo de vida do aluno e matérias.
-import os
+"""
+Ferramentas para gerenciamento do ciclo de vida do aluno e matérias.
+
+Este módulo fornece funções para gerenciamento de alunos, matrículas,
+matérias e consultas de progresso no banco de dados PostgreSQL.
+"""
+
+import logging
 from typing import Optional
 
 import psycopg2
-from dotenv import load_dotenv
 from langchain_core.tools import tool
 from psycopg2.extras import RealDictCursor
 
-load_dotenv()
+from config import get_config
 
-DATABASE_URL = os.getenv
+logger = logging.getLogger(__name__)
+
+
+def _get_connection():
+    """
+    Obtém uma conexão com o banco de dados PostgreSQL.
+    
+    Returns:
+        Conexão ativa com o banco de dados.
+    
+    Raises:
+        psycopg2.Error: Se não conseguir conectar ao banco.
+    """
+    config = get_config()
+    return psycopg2.connect(config.database.url, cursor_factory=RealDictCursor)
 
 
 def executar_query_postgres(sql: str, params: tuple = ()) -> list[dict]:
+    """
+    Executa uma query (SELECT) no PostgreSQL e retorna os resultados.
+    
+    Args:
+        sql: Comando SQL a executar.
+        params: Parâmetros para evitar SQL injection.
+    
+    Returns:
+        Lista de dicionários com os resultados, ou lista vazia em caso de erro.
+    """
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+        conn = _get_connection()
         cursor = conn.cursor()
         cursor.execute(sql, params)
 
@@ -25,9 +54,10 @@ def executar_query_postgres(sql: str, params: tuple = ()) -> list[dict]:
             resultados = [dict(row) for row in cursor.fetchall()]
 
         conn.commit()
+        logger.debug(f"Query executada com sucesso. Retornou {len(resultados)} linhas.")
         return resultados
-    except Exception as e:
-        print(f"Erro ao executar query no PostgreSQL: {e}")
+    except psycopg2.Error as e:
+        logger.error(f"Erro ao executar query no PostgreSQL: {e}", exc_info=True)
         return []
     finally:
         if cursor is not None:
@@ -37,16 +67,29 @@ def executar_query_postgres(sql: str, params: tuple = ()) -> list[dict]:
 
 
 def executar_comando_postgres(sql: str, params: tuple = ()) -> bool:
+    """
+    Executa um comando (INSERT, UPDATE, DELETE) no PostgreSQL.
+    
+    Args:
+        sql: Comando SQL a executar.
+        params: Parâmetros para evitar SQL injection.
+    
+    Returns:
+        True se o comando foi bem-sucedido, False caso contrário.
+    """
     conn = None
     cursor = None
     try:
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = _get_connection()
         cursor = conn.cursor()
         cursor.execute(sql, params)
         conn.commit()
+        logger.debug(f"Comando SQL executado com sucesso. Linhas afetadas: {cursor.rowcount}")
         return True
-    except Exception as e:
-        print(f"Erro ao executar comando no PostgreSQL: {e}")
+    except psycopg2.Error as e:
+        logger.error(f"Erro ao executar comando no PostgreSQL: {e}", exc_info=True)
+        if conn:
+            conn.rollback()
         return False
     finally:
         if cursor is not None:
@@ -56,6 +99,16 @@ def executar_comando_postgres(sql: str, params: tuple = ()) -> bool:
 
 
 def buscar_aluno_raw(aluno_id: Optional[int] = None, matricula: Optional[str] = None) -> Optional[dict]:
+    """
+    Busca um aluno no banco de dados por ID ou matrícula.
+    
+    Args:
+        aluno_id: ID do aluno (opcional).
+        matricula: Matrícula do aluno (opcional).
+    
+    Returns:
+        Dicionário com dados do aluno ou None se não encontrado.
+    """
     if aluno_id is not None:
         resultado = executar_query_postgres(
             "SELECT id, nome, matricula FROM aluno WHERE id = %s;",
@@ -67,13 +120,26 @@ def buscar_aluno_raw(aluno_id: Optional[int] = None, matricula: Optional[str] = 
             (matricula,),
         )
     else:
+        logger.warning("buscar_aluno_raw chamado sem aluno_id ou matricula")
         return None
+    
     return resultado[0] if resultado else None
 
 
 def criar_aluno_raw(nome: str, matricula: str) -> Optional[dict]:
+    """
+    Cria um novo aluno ou retorna o cadastro existente para a matrícula.
+    
+    Args:
+        nome: Nome completo do aluno.
+        matricula: Matrícula única do aluno.
+    
+    Returns:
+        Dicionário com dados do aluno ou None em caso de erro.
+    """
     existente = buscar_aluno_raw(matricula=matricula)
     if existente:
+        logger.info(f"Aluno com matrícula {matricula} já existe no banco")
         return existente
 
     resultado = executar_query_postgres(
@@ -84,14 +150,32 @@ def criar_aluno_raw(nome: str, matricula: str) -> Optional[dict]:
         """,
         (nome, matricula),
     )
+    
+    if resultado:
+        logger.info(f"Aluno criado com sucesso: {nome} ({matricula})")
     return resultado[0] if resultado else None
 
 
 def listar_materias_disponiveis_raw() -> list[dict]:
+    """
+    Lista todas as matérias cadastradas no sistema.
+    
+    Returns:
+        Lista de dicionários com as matérias disponíveis.
+    """
     return executar_query_postgres("SELECT id, nome, descricao FROM materia ORDER BY id ASC;")
 
 
 def consultar_matriculas_aluno_raw(aluno_id: int) -> list[dict]:
+    """
+    Consulta todas as matrículas ativas de um aluno.
+    
+    Args:
+        aluno_id: ID do aluno.
+    
+    Returns:
+        Lista de dicionários com as matérias do aluno.
+    """
     return executar_query_postgres(
         """
         SELECT m.id, m.nome, m.descricao
@@ -105,6 +189,16 @@ def consultar_matriculas_aluno_raw(aluno_id: int) -> list[dict]:
 
 
 def aluno_esta_matriculado_raw(aluno_id: int, materia_id: int) -> bool:
+    """
+    Verifica se um aluno está matriculado em uma matéria específica.
+    
+    Args:
+        aluno_id: ID do aluno.
+        materia_id: ID da matéria.
+    
+    Returns:
+        True se matriculado, False caso contrário.
+    """
     resultado = executar_query_postgres(
         "SELECT 1 FROM matricula WHERE aluno_id = %s AND materia_id = %s LIMIT 1;",
         (aluno_id, materia_id),
@@ -113,11 +207,23 @@ def aluno_esta_matriculado_raw(aluno_id: int, materia_id: int) -> bool:
 
 
 def matricular_aluno_raw(aluno_id: int, materia_id: int) -> str:
+    """
+    Matricula um aluno em uma matéria.
+    
+    Args:
+        aluno_id: ID do aluno.
+        materia_id: ID da matéria.
+    
+    Returns:
+        Mensagem de sucesso ou erro.
+    """
     if not buscar_aluno_raw(aluno_id=aluno_id):
+        logger.warning(f"Tentativa de matricular aluno inexistente: {aluno_id}")
         return "Aluno nao localizado."
 
     materia = executar_query_postgres("SELECT id, nome FROM materia WHERE id = %s;", (materia_id,))
     if not materia:
+        logger.warning(f"Tentativa de matricular em matéria inexistente: {materia_id}")
         return "Materia nao localizada."
 
     resultado = executar_query_postgres(
@@ -131,13 +237,25 @@ def matricular_aluno_raw(aluno_id: int, materia_id: int) -> str:
     )
 
     if resultado:
+        logger.info(f"Aluno {aluno_id} matriculado em {materia[0]['nome']}")
         return f"Matricula criada com sucesso em {materia[0]['nome']}."
     return f"O aluno ja estava matriculado em {materia[0]['nome']}."
 
 
 def remover_matricula_raw(aluno_id: int, materia_id: int) -> str:
+    """
+    Remove a matrícula de um aluno em uma matéria.
+    
+    Args:
+        aluno_id: ID do aluno.
+        materia_id: ID da matéria.
+    
+    Returns:
+        Mensagem de sucesso ou erro.
+    """
     materia = executar_query_postgres("SELECT id, nome FROM materia WHERE id = %s;", (materia_id,))
     if not materia:
+        logger.warning(f"Tentativa de remover matrícula em matéria inexistente: {materia_id}")
         return "Materia nao localizada."
 
     resultado = executar_query_postgres(
@@ -150,8 +268,12 @@ def remover_matricula_raw(aluno_id: int, materia_id: int) -> str:
     )
 
     if resultado:
+        logger.info(f"Matrícula removida: aluno {aluno_id} de {materia[0]['nome']}")
         return f"Matricula removida com sucesso de {materia[0]['nome']}."
+    
+    logger.warning(f"Nenhuma matrícula encontrada para remover: aluno {aluno_id}, matéria {materia_id}")
     return f"Nao havia matricula ativa em {materia[0]['nome']}."
+
 
 
 def buscar_diretrizes_materia(materia_id: int) -> str:

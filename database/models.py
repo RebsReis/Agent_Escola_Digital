@@ -1,24 +1,45 @@
-#Ele já traduz os tipos de dados do PostgreSQL, os relacionamentos, as restrições de unicidade (UniqueConstraint)
-#  e o tipo ENUM para as avaliações.
+"""
+Modelos de Dados do Sistema Escola Digital.
 
-from datetime import datetime
+Define todas as entidades do banco de dados com relacionamentos,
+restrições e integridade referencial utilizando SQLAlchemy ORM.
+"""
+
 import enum
+from datetime import datetime
 from typing import List, Optional
-from sqlalchemy import ForeignKey, String, Text, Numeric, DateTime, UniqueConstraint, CheckConstraint, Enum
+
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    Enum,
+    ForeignKey,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-# Classe base para os modelos
+
 class Base(DeclarativeBase):
+    """Classe base para todos os modelos ORM."""
     pass
 
-# 6. ENUM para Status da Avaliação
+
 class StatusAvaliacao(enum.Enum):
+    """Enum para os possíveis status de uma avaliação."""
     pendente = "pendente"
     em_andamento = "em_andamento"
     corrigida = "corrigida"
 
-# 1. Tabela ALUNO
+
 class Aluno(Base):
+    """
+    Modelo de Aluno.
+    
+    Representa um aluno do sistema com seus dados pessoais
+    e relacionamentos com matrículas, tópicos concluídos e avaliações.
+    """
     __tablename__ = "aluno"
     
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -30,8 +51,14 @@ class Aluno(Base):
     topicos_concluidos: Mapped[List["TopicoAluno"]] = relationship(back_populates="aluno")
     avaliacoes: Mapped[List["Avaliacao"]] = relationship(back_populates="aluno")
 
-# 2. Tabela MATERIA
+
 class Materia(Base):
+    """
+    Modelo de Matéria.
+    
+    Representa uma disciplina do sistema com tópicos, matrículas
+    e um prompt específico para o agente professor especialista.
+    """
     __tablename__ = "materia"
     
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -44,8 +71,14 @@ class Materia(Base):
     matriculas: Mapped[List["Matricula"]] = relationship(back_populates="materia")
     avaliacoes: Mapped[List["Avaliacao"]] = relationship(back_populates="materia")
 
-# 3. Tabela TOPICO
+
 class Topico(Base):
+    """
+    Modelo de Tópico.
+    
+    Representa um tópico/unidade de aprendizado dentro de uma matéria,
+    com ordenação para garantir sequência pedagógica.
+    """
     __tablename__ = "topico"
     
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -63,44 +96,66 @@ class Topico(Base):
         UniqueConstraint("materia_id", "ordem", name="unique_materia_ordem"),
     )
 
-# 4. Tabela TOPICO_ALUNO (Progresso)
+
 class TopicoAluno(Base):
+    """
+    Modelo de Progresso do Aluno.
+    
+    Rastreia quais tópicos cada aluno completou e quando,
+    permitindo análise de progresso e recomendação de próximos passos.
+    """
     __tablename__ = "topico_aluno"
     
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     aluno_id: Mapped[int] = mapped_column(ForeignKey("aluno.id"))
     topico_id: Mapped[int] = mapped_column(ForeignKey("topico.id"))
-    concluido_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    concluido_em: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, nullable=False
+    )
     
     # Relacionamentos
     aluno: Mapped["Aluno"] = relationship(back_populates="topicos_concluidos")
     topico: Mapped["Topico"] = relationship(back_populates="conclusoes_alunos")
     
-    # Restrição: Impede concluir 2 vezes o mesmo tópico
+    # Restrição: Impede marcar o mesmo tópico como concluído duas vezes
     __table_args__ = (
         UniqueConstraint("aluno_id", "topico_id", name="unique_aluno_topico"),
     )
 
-# 5. Tabela MATRICULA
+
 class Matricula(Base):
+    """
+    Modelo de Matrícula.
+    
+    Representa o vínculo de um aluno em uma matéria,
+    registrando a data de inscrição.
+    """
     __tablename__ = "matricula"
     
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     aluno_id: Mapped[int] = mapped_column(ForeignKey("aluno.id"))
     materia_id: Mapped[int] = mapped_column(ForeignKey("materia.id"))
-    data_matricula: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    data_matricula: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, nullable=False
+    )
     
     # Relacionamentos
     aluno: Mapped["Aluno"] = relationship(back_populates="matriculas")
     materia: Mapped["Materia"] = relationship(back_populates="matriculas")
     
-    # Restrição: Impede matrícula duplicada
+    # Restrição: Impede matrícula duplicada no mesmo aluno+matéria
     __table_args__ = (
         UniqueConstraint("aluno_id", "materia_id", name="unique_aluno_materia"),
     )
 
-# 6. Tabela AVALIACAO
+
 class Avaliacao(Base):
+    """
+    Modelo de Avaliação.
+    
+    Registra uma avaliação enviada por um aluno em uma matéria,
+    incluindo nota, feedback e status de correção.
+    """
     __tablename__ = "avaliacao"
     
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -125,8 +180,14 @@ class Avaliacao(Base):
         CheckConstraint("nota >= 0 AND nota <= 10", name="check_nota_range"),
     )
 
-# 7. Tabela HISTORICO_CONVERSA
+
 class HistoricoConversa(Base):
+    """
+    Modelo de Histórico de Conversa.
+    
+    Armazena todas as mensagens de conversas entre aluno e agentes,
+    permitindo análise de histórico e contexto para futuras interações.
+    """
     __tablename__ = "historico_conversa"
     
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -142,3 +203,4 @@ class HistoricoConversa(Base):
     __table_args__ = (
         CheckConstraint("role = 'user' OR role = 'assistant'", name="check_role_type"),
     )
+
